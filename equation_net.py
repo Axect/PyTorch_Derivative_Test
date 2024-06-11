@@ -130,9 +130,7 @@ def plot_function_and_derivative(fixed_var, var_values, var_name, save_path):
         inputs.grad.zero_()
 
     outputs = np.array(outputs)
-    print(outputs.shape)
     grads = np.array(grads)
-    print(grads.shape)
 
     with plt.style.context(['science', 'nature']):
         plt.figure(figsize=(12, 5))
