@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 from torch.optim.lr_scheduler import PolynomialLR
 import numpy as np
 import matplotlib.pyplot as plt
+import scienceplots
 import wandb
 
 # CUDA 설정
@@ -15,7 +16,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def generate_data(num_samples=1000):
     x = np.random.uniform(-1, 1, num_samples)
     y = np.random.uniform(-1, 1, num_samples)
-    y1 = np.exp(-x**2 + 2*y)
+    y1 = x**2 + 2*y
     y2 = -x + y**2
     return torch.tensor(x, dtype=torch.float32).reshape(-1, 1), torch.tensor(y, dtype=torch.float32).reshape(-1, 1), torch.tensor(y1, dtype=torch.float32).reshape(-1, 1), torch.tensor(y2, dtype=torch.float32).reshape(-1, 1)
 
@@ -49,18 +50,17 @@ val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 layers = [2, 100, 100, 100, 2]
 model = EquationNet(layers).to(device)
 criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-4)
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 scheduler = PolynomialLR(optimizer, total_iters=3000, power=2)
 
 # 모델 파일 경로
 model_path = "equation_net.pth"
 
-# wandb 초기화
-wandb.init(project="EquationNet")
-wandb.watch(model, log="all")
-
 # 모델 학습
 if not os.path.exists(model_path):
+    # wandb 초기화
+    wandb.init(project="EquationNet")
+    wandb.watch(model, log="all")
     num_epochs = 3000
     for epoch in range(num_epochs):
         model.train()
@@ -101,9 +101,10 @@ if not os.path.exists(model_path):
     
     # 모델 저장
     torch.save(model.state_dict(), model_path)
+    wandb.finish()
 else:
     # 모델 불러오기
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
 
 # 학습이 끝난 후 플로팅
@@ -117,37 +118,37 @@ def plot_function_and_derivative(fixed_var, var_values, var_name, save_path):
         else:
             inputs = torch.tensor([[fixed_var, value]], dtype=torch.float32).to(device).detach().clone().requires_grad_(True)
 
-        output = model(inputs)
-        if output.size(1) != 2:
-            raise ValueError(f"Unexpected output size: {output.size()}")
-
+        output = model(inputs).squeeze(0)
         outputs.append(output.detach().cpu().numpy())
 
         if var_name == 'x':
-            output[0,0].backward(retain_graph=True)
+            output[0].backward(retain_graph=True)
         else:
-            output[0,1].backward(retain_graph=True)
+            output[1].backward(retain_graph=True)
 
         grads.append(inputs.grad[0].detach().cpu().numpy().copy())
         inputs.grad.zero_()
 
     outputs = np.array(outputs)
+    print(outputs.shape)
     grads = np.array(grads)
+    print(grads.shape)
 
-    plt.figure(figsize=(12, 5))
-    plt.subplot(1, 2, 1)
-    plt.plot(var_values, outputs[:, 0], label='y1')
-    plt.plot(var_values, outputs[:, 1], label='y2')
-    plt.title(f'Output with {var_name}=fixed_var')
-    plt.legend()
+    with plt.style.context(['science', 'nature']):
+        plt.figure(figsize=(12, 5))
+        plt.subplot(1, 2, 1)
+        plt.plot(var_values, outputs[:, 0], label='y1')
+        plt.plot(var_values, outputs[:, 1], label='y2')
+        plt.title(f'Output with {var_name}=fixed_var')
+        plt.legend()
 
-    plt.subplot(1, 2, 2)
-    plt.plot(var_values, grads[:, 0], label='dy1/d'+var_name)
-    plt.plot(var_values, grads[:, 1], label='dy2/d'+var_name)
-    plt.title(f'Derivative with {var_name}=fixed_var')
-    plt.legend()
+        plt.subplot(1, 2, 2)
+        plt.plot(var_values, grads[:, 0], label='dy1/d'+var_name)
+        plt.plot(var_values, grads[:, 1], label='dy2/d'+var_name)
+        plt.title(f'Derivative with {var_name}=fixed_var')
+        plt.legend()
 
-    plt.savefig(save_path, dpi=600)
+        plt.savefig(save_path, dpi=600)
 
 # y=1 고정
 plot_function_and_derivative(1, np.linspace(-1, 1, 100, dtype=np.float32), 'x', 'output_with_y_fixed.png')
