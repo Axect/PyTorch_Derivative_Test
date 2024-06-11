@@ -48,7 +48,7 @@ val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 layers = [2, 100, 100, 100, 2]
 model = EquationNet(layers).to(device)
 criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=0.01)
 scheduler = PolynomialLR(optimizer, total_iters=3000, power=2)
 
 # wandb 초기화
@@ -101,9 +101,9 @@ def plot_function_and_derivative(fixed_var, var_values, var_name, save_path):
 
     for value in var_values:
         if var_name == 'x':
-            inputs = torch.tensor([[value, fixed_var]], requires_grad=True).to(device)
+            inputs = torch.tensor([[value, fixed_var]], dtype=torch.float32).to(device).detach().clone().requires_grad_(True)
         else:
-            inputs = torch.tensor([[fixed_var, value]], requires_grad=True).to(device)
+            inputs = torch.tensor([[fixed_var, value]], dtype=torch.float32).to(device).detach().clone().requires_grad_(True)
 
         output = model(inputs)
         outputs.append(output.detach().cpu().numpy())
