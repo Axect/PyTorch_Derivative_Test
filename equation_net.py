@@ -48,11 +48,11 @@ val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 layers = [2, 100, 100, 100, 2]
 model = EquationNet(layers).to(device)
 criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 scheduler = PolynomialLR(optimizer, total_iters=3000, power=2)
 
 # wandb 초기화
-wandb.init(project="EquationNet_Project", entity="your_username")
+wandb.init(project="EquationNet")
 wandb.watch(model, log="all")
 
 # 학습
@@ -135,7 +135,7 @@ def plot_function_and_derivative(fixed_var, var_values, var_name, save_path):
     plt.savefig(save_path, dpi=600)
 
 # y=1 고정
-plot_function_and_derivative(1, np.linspace(-1, 1, 100), 'x', 'output_with_y_fixed.png')
+plot_function_and_derivative(1, np.linspace(-1, 1, 100, dtype=np.float32), 'x', 'output_with_y_fixed.png')
 
 # x=1 고정
-plot_function_and_derivative(1, np.linspace(-1, 1, 100), 'y', 'output_with_x_fixed.png')
+plot_function_and_derivative(1, np.linspace(-1, 1, 100, dtype=np.float32), 'y', 'output_with_x_fixed.png')
