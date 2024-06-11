@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -48,51 +49,62 @@ val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 layers = [2, 100, 100, 100, 2]
 model = EquationNet(layers).to(device)
 criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+optimizer = optim.Adam(model.parameters(), lr=1e-4)
 scheduler = PolynomialLR(optimizer, total_iters=3000, power=2)
+
+# 모델 파일 경로
+model_path = "equation_net.pth"
 
 # wandb 초기화
 wandb.init(project="EquationNet")
 wandb.watch(model, log="all")
 
-# 학습
-num_epochs = 3000
-for epoch in range(num_epochs):
-    model.train()
-    train_loss = 0.0
-    for batch_inputs, batch_targets in train_loader:
-        batch_inputs, batch_targets = batch_inputs.to(device), batch_targets.to(device)
-        optimizer.zero_grad()
-        outputs = model(batch_inputs)
-        loss = criterion(outputs, batch_targets)
-        loss.backward()
-        optimizer.step()
-        train_loss += loss.item()
-    
-    train_loss /= len(train_loader)
-    
-    model.eval()
-    val_loss = 0.0
-    with torch.no_grad():
-        for batch_inputs, batch_targets in val_loader:
+# 모델 학습
+if not os.path.exists(model_path):
+    num_epochs = 3000
+    for epoch in range(num_epochs):
+        model.train()
+        train_loss = 0.0
+        for batch_inputs, batch_targets in train_loader:
             batch_inputs, batch_targets = batch_inputs.to(device), batch_targets.to(device)
+            optimizer.zero_grad()
             outputs = model(batch_inputs)
             loss = criterion(outputs, batch_targets)
-            val_loss += loss.item()
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+        
+        train_loss /= len(train_loader)
+        
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for batch_inputs, batch_targets in val_loader:
+                batch_inputs, batch_targets = batch_inputs.to(device), batch_targets.to(device)
+                outputs = model(batch_inputs)
+                loss = criterion(outputs, batch_targets)
+                val_loss += loss.item()
+        
+        val_loss /= len(val_loader)
+        
+        scheduler.step()
+        
+        if (epoch+1) % 100 == 0:
+            print(f'Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
+        
+        wandb.log({
+            "epoch": epoch + 1,
+            "learning_rate": scheduler.get_last_lr()[0],
+            "train_loss": train_loss,
+            "val_loss": val_loss
+        })
     
-    val_loss /= len(val_loader)
-    
-    scheduler.step()
-    
-    if (epoch+1) % 100 == 0:
-        print(f'Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
-    
-    wandb.log({
-        "epoch": epoch + 1,
-        "learning_rate": scheduler.get_last_lr()[0],
-        "train_loss": train_loss,
-        "val_loss": val_loss
-    })
+    # 모델 저장
+    torch.save(model.state_dict(), model_path)
+else:
+    # 모델 불러오기
+    model.load_state_dict(torch.load(model_path))
+    model.to(device)
 
 # 학습이 끝난 후 플로팅
 def plot_function_and_derivative(fixed_var, var_values, var_name, save_path):
@@ -106,6 +118,9 @@ def plot_function_and_derivative(fixed_var, var_values, var_name, save_path):
             inputs = torch.tensor([[fixed_var, value]], dtype=torch.float32).to(device).detach().clone().requires_grad_(True)
 
         output = model(inputs)
+        if output.size(1) != 2:
+            raise ValueError(f"Unexpected output size: {output.size()}")
+
         outputs.append(output.detach().cpu().numpy())
 
         if var_name == 'x':
