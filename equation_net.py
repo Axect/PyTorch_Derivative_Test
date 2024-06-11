@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 import scienceplots
 import wandb
 
-# CUDA 설정
+# Set CUDA
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# 데이터 생성
+# Generate data
 def generate_data(num_samples=1000):
     x = np.random.uniform(-1, 1, num_samples)
     y = np.random.uniform(-1, 1, num_samples)
@@ -20,7 +20,7 @@ def generate_data(num_samples=1000):
     y2 = -x + y**2
     return torch.tensor(x, dtype=torch.float32).reshape(-1, 1), torch.tensor(y, dtype=torch.float32).reshape(-1, 1), torch.tensor(y1, dtype=torch.float32).reshape(-1, 1), torch.tensor(y2, dtype=torch.float32).reshape(-1, 1)
 
-# 모델 정의
+# Define model
 class EquationNet(nn.Module):
     def __init__(self, layers):
         super(EquationNet, self).__init__()
@@ -33,7 +33,7 @@ class EquationNet(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-# 데이터 준비
+# Prepare data
 x, y, y1, y2 = generate_data()
 inputs = torch.cat((x, y), dim=1)
 targets = torch.cat((y1, y2), dim=1)
@@ -46,19 +46,19 @@ train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
-# 모델, 손실 함수, 옵티마이저, 스케줄러 설정
+# Set model, loss function, optimizer, scheduler
 layers = [2, 100, 100, 100, 2]
 model = EquationNet(layers).to(device)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 scheduler = PolynomialLR(optimizer, total_iters=3000, power=2)
 
-# 모델 파일 경로
+# Model file path
 model_path = "equation_net.pth"
 
-# 모델 학습
+# Train model
 if not os.path.exists(model_path):
-    # wandb 초기화
+    # Initialize wandb
     wandb.init(project="EquationNet")
     wandb.watch(model, log="all")
     num_epochs = 3000
@@ -99,18 +99,19 @@ if not os.path.exists(model_path):
             "val_loss": val_loss
         })
     
-    # 모델 저장
+    # Save model
     torch.save(model.state_dict(), model_path)
     wandb.finish()
 else:
-    # 모델 불러오기
+    # Load model
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
 
-# 학습이 끝난 후 플로팅
+# Plot after training
 def plot_function_and_derivative(fixed_var, var_values, var_name, save_path):
     outputs = []
-    grads = []
+    grads_y1 = []
+    grads_y2 = []
 
     for value in var_values:
         if var_name == 'x':
@@ -121,35 +122,68 @@ def plot_function_and_derivative(fixed_var, var_values, var_name, save_path):
         output = model(inputs).squeeze(0)
         outputs.append(output.detach().cpu().numpy())
 
-        if var_name == 'x':
-            output[0].backward(retain_graph=True)
-        else:
-            output[1].backward(retain_graph=True)
+        # dy1/dx, dy2/dy
+        output[0].backward(retain_graph=True)
 
-        grads.append(inputs.grad[0].detach().cpu().numpy().copy())
+        if var_name == 'x':
+            grads_y1.append(inputs.grad[0][0].detach().cpu().numpy().copy())
+        else:
+            grads_y1.append(inputs.grad[0][1].detach().cpu().numpy().copy())
+        inputs.grad.zero_()
+
+        # dy2/dx, dy2/dy
+        output[1].backward(retain_graph=True)
+
+        if var_name == 'x':
+            grads_y2.append(inputs.grad[0][0].detach().cpu().numpy().copy())
+        else:
+            grads_y2.append(inputs.grad[0][1].detach().cpu().numpy().copy())
         inputs.grad.zero_()
 
     outputs = np.array(outputs)
-    grads = np.array(grads)
+    grads_y1 = np.array(grads_y1)
+    grads_y2 = np.array(grads_y2)
+
+    other_var = 'x' if var_name == 'y' else 'y'
+
+    true_val_y1 = []
+    true_val_y2 = []
+    true_grad_y1 = []
+    true_grad_y2 = []
+
+    if var_name == 'x':
+        true_val_y1 = var_values ** 2
+        true_val_y2 = -var_values
+        true_grad_y1 = 2 * var_values
+        true_grad_y2 = -np.ones_like(var_values)
+    else:
+        true_val_y1 = 2 * var_values
+        true_val_y2 = var_values ** 2
+        true_grad_y1 = np.ones_like(var_values) * 2
+        true_grad_y2 = 2 * var_values
 
     with plt.style.context(['science', 'nature']):
         plt.figure(figsize=(12, 5))
         plt.subplot(1, 2, 1)
-        plt.plot(var_values, outputs[:, 0], label='y1')
-        plt.plot(var_values, outputs[:, 1], label='y2')
-        plt.title(f'Output with {var_name}=fixed_var')
+        plt.plot(var_values, outputs[:, 0], color='darkblue', label=r'$\hat{y}_1$')
+        plt.plot(var_values, true_val_y1, ':', color='red', label=r'$y_1$')
+        plt.plot(var_values, outputs[:, 1], color='darkgreen', label=r'$\hat{y}_2$')
+        plt.plot(var_values, true_val_y2, ':', color='orange', label=r'$y_2$')
+        plt.title(f'Output with {other_var}=0')
         plt.legend()
 
         plt.subplot(1, 2, 2)
-        plt.plot(var_values, grads[:, 0], label='dy1/d'+var_name)
-        plt.plot(var_values, grads[:, 1], label='dy2/d'+var_name)
-        plt.title(f'Derivative with {var_name}=fixed_var')
+        plt.plot(var_values, grads_y1[:], color='darkblue', label=r'$d\hat{y_1}/d'+var_name+r'$')
+        plt.plot(var_values, true_grad_y1, ':', color='red', label=r'$dy_1/d'+var_name+r'$')
+        plt.plot(var_values, grads_y2[:], color='darkgreen', label=r'$d\hat{y_2}/d'+var_name+r'$')
+        plt.plot(var_values, true_grad_y2, ':', color='orange', label=r'$dy_2/d'+var_name+r'$')
+        plt.title(f'Derivative with {other_var}=0')
         plt.legend()
 
         plt.savefig(save_path, dpi=600)
 
-# y=1 고정
-plot_function_and_derivative(1, np.linspace(-1, 1, 100, dtype=np.float32), 'x', 'output_with_y_fixed.png')
+# Fixed y=1
+plot_function_and_derivative(0, np.linspace(-1, 1, 100, dtype=np.float32), 'x', 'output_x.png')
 
-# x=1 고정
-plot_function_and_derivative(1, np.linspace(-1, 1, 100, dtype=np.float32), 'y', 'output_with_x_fixed.png')
+# Fixed x=1
+plot_function_and_derivative(0, np.linspace(-1, 1, 100, dtype=np.float32), 'y', 'output_y.png')
